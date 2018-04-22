@@ -1,0 +1,78 @@
+3 data structures
+
+struct chat_room {
+  char *name;
+  Dllist clients, messages;
+  pthread_mutex_t *lock;
+  pthread_cond_t *condition;
+}
+
+struct meta {
+  JRB rooms;
+  int socket;
+}
+
+struct client {
+  char *name, *room;
+  FILE *read, *write;
+  int fd;
+  struct meta *Meta;
+}
+
+1 main thread
+1 thread for each room
+1 thread for each client
+
+Main:
+  1. malloc Meta
+  2. Read all rooms from the command line
+    a. allocate the room
+    b. insert to meta->rooms
+    c. pthread_create(...)
+  3. Meta->socket = serve_socket(port)
+  4. while(1) {
+    a. fd = accept_connection(socket);
+    b. malloc client()
+    c. pthread_create(...)
+  }
+
+Room_function:
+  1. initiate everything (mutex, lock, conditional, temp vars, ...)
+  2. lock
+  3. while (1) {
+    a. create room->messages
+    b. wait (cond, lock)
+    c. traverse clients;
+      traverse messages
+        write()
+        fflush()
+        check for errors
+    d. free list
+
+Client_function:
+  1. open the read/write files;
+  2. print all chat rooms to the client
+    a. traverse meta->rooms:
+      lock room
+        traverse clients
+      unlock room
+  3. ask for name / chat room (while chat rooom is legal room)
+  4. get the room
+    lock
+      update clients list
+      add "... has joined" to messages list
+    signal and unlock
+  5. while (1) {
+    a. if there is no wmessage from the client
+      lock room
+        update clients
+        add "... has left" to the messages
+      signal and unlock
+      pthread_exit(NULL)
+    b. else 
+      lock room
+        add message 
+      singal / unlock
+  }
+      
+
