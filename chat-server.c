@@ -17,7 +17,7 @@ typedef struct chat_room {
   char *name;
   Dllist clients, messages;
   pthread_mutex_t *lock;
-  pthread_cond_t *condition;
+  pthread_cond_t *cond;
 } Room;
 
 typedef struct client {
@@ -64,6 +64,7 @@ void *main_function(void *arg) {
   pthread_t tid;
   void *status;
   JRB tmp;
+  pthread_t tids[300];
 
   printf("MAIN THREAD: make the main thread\n");  
 
@@ -86,11 +87,17 @@ void *main_function(void *arg) {
       perror("pthread_create");
       exit(0);
     }
-    if (pthread_join(tid, &status) != 0) {
+    tids[i-3] = tid;
+  }
+/*
+  for (i = 3; argv[i] != NULL; i++) {
+    printf("joining pthread %d\n", tids[i-3]);  
+    if (pthread_join(tids[i-3], &status) != 0) {
       perror("pthread_join");
       exit(0);
     }
   }
+*/
 
   jrb_traverse(tmp, data->rooms) {
     printf("MAIN THREAD: room: %s\n", tmp->key); 
@@ -116,10 +123,10 @@ void *main_function(void *arg) {
       perror("pthread_create");
       exit(0);
     }
-    if (pthread_join(tid, &status) != 0) {
+    /*if (pthread_join(tid, &status) != 0) {
       perror("pthread_join");
       exit(0);
-    }
+    }*/
   }
 
   return NULL; 
@@ -127,20 +134,78 @@ void *main_function(void *arg) {
 
 void *room_function(void *arg) {
   Room *r;
+  Dllist c, m;
+  char *str;
+  Client *client;
 
   r = arg;
-  printf("ROOM THREAD: I am in the room thread for room: %s\n", r->name);
+  printf("%s thread\n", r->name);
 
-  
+  // initialize mutex and conditional variable and other things
+  r->lock = (pthread_mutex_t *) malloc(sizeof(pthread_mutex_t *));
+  pthread_mutex_init(r->lock, NULL);
+  r->cond = (pthread_cond_t *) malloc(sizeof(pthread_cond_t *));
+  if(pthread_cond_init(r->cond, NULL) != 0) {
+    printf("ROOM THREAD: pthread_cond_init failed\n");
+    exit(0);
+  }
+  r->clients = new_dllist();
+  printf("%s thread: I have made the lock and cond\n", r->name);
+
+
+  while (1) {
+    printf("in the while 1\n");
+    r->messages = new_dllist();
+    printf("%s locking...\n", r->name);
+    pthread_cond_wait(r->cond, r->lock);
+    dll_traverse(c, r->clients) {
+      dll_traverse(m, r->messages) {
+         str = m->val.s;
+         client = c->val.v;
+         fputs(str, client->write);
+         fflush(client->write);
+      }
+    }
+
+    free_dllist(r->messages);
+    pthread_mutex_unlock(r->lock);
+  }
 
   return NULL;
 }
 
 void *client_function(void *arg) {
   Client *c;
+  Room *r;
+  Dllist tmp;
+  JRB room;
 
   c = arg;
   printf("CLIENT THREAD: I am in a client thread\n");
+  
+  // open the files for reading and writing
+  c->read = fdopen(c->fd, "r");
+  if (c->read == NULL) {
+    perror("fdopen");
+    exit(0);
+  }
+  //dup2(c->fd, 0);
+  c->write = fdopen(c->fd, "w");
+  if (c->write == NULL) {
+    perror("fdopen");
+    exit(0);
+  }
+  //dup2(c->fd, 1);
+
+  // print all the chat rooms to the client
+  fputs("Chat Rooms:\n\n", c->write);
+  fflush(c->write);
+  jrb_traverse(room, c->data->rooms) {
+    r = room->val.v;
+    fputs(r->name, c->write);
+    fflush(c->write);
+  }
+
 
   return NULL;
 }
